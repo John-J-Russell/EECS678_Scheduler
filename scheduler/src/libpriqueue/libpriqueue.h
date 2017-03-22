@@ -9,7 +9,10 @@
 */
 typedef struct _priqueue_t
 {
-
+	//Array of void pointers?
+	//int m_size
+	//int m_num_entries
+	//function pointer to the compare function
 } priqueue_t;
 
 

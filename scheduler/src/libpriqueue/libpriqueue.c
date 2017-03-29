@@ -54,7 +54,7 @@ int priqueue_offer(priqueue_t *q, void *ptr)
 	{
 		int x = q->m_num_entries - 1; //last element of array location
 		while( 0 > q->compare_func( ptr , q->m_array[x] ) && x >= 0 ) 
-			//"true" while array element is less than ptr
+			//"true" while array element is greater than ptr
 			//i.e. this is a min priority queue
 		{
 			x = x-1; //decrement x
@@ -64,7 +64,7 @@ int priqueue_offer(priqueue_t *q, void *ptr)
 			}
 		}
 
-		//x will either be the location of the first >= element,
+		//x will either be the location of the first <= element,
 		//OR it will be -1. Should work from here on out
 
 		//At this point, x is the first location greater than or equal

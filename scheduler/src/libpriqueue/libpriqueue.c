@@ -84,13 +84,14 @@ int priqueue_offer(priqueue_t *q, void *ptr)
 			//Refactor / double size of array
 			void ** replacement_array = malloc(2 * sizeof(*q->m_array) );
 			int y;
+			for( y = 0; y < 2 * q->m_num_entries; y++)
+			{
+				replacement_array[y] = NULL; //set all entries to NULL
+			}
 			for( y = 0; y < q->m_num_entries; y++)
 			{
-				replacement_array[y] = q->m_array[y];
-			}
-			while(y < 2*q->m_size)
-			{
-				replacement_array[y] = NULL; //turn rest of entries to null
+				//duplicate necessary entries from the old array
+				replacement_array[y] = q->m_array[y]; 
 
 			}
 			free(q->m_array); //free old array

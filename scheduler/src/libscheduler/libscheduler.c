@@ -38,13 +38,13 @@ typedef struct _core_t
 {
 	int core_id;
 	int active_job_id; //-1 for no active job
-	job_t* active_job;
+	job_t* active_job; //a pointer to the job currently running
 } core_t;
 
 //Array of cores
-
 core_t ** core_array;
-int m_num_cores;
+int m_num_cores; //number of cores
+
 //priority queue
 priqueue_t* queue;
 
@@ -78,10 +78,9 @@ int compare_RR(const void *a, const void *b);
 void scheduler_start_up(int cores, scheme_t scheme)
 {
 	active_scheme = scheme;
-	//I probably want to use the scheme to decide which comparing function
-	//to use for the rest of the program.
-	//Also which comparison function to pass to the priority queue
-	
+
+	//use the scheme value to decide which comparison function
+	//to use for the rest of the program	
 	if(active_scheme == FCFS)
 	{
 		compare_func = &compare_FCFS;
@@ -107,14 +106,12 @@ void scheduler_start_up(int cores, scheme_t scheme)
 		new_core->active_job_id = -1;
 		new_core->active_job = NULL;
 		core_array[x] = new_core;
-		//core_array[x]->core_id = x;
-		//core_array[x]->active_job_id = -1;
-		//core_array[x]->active_job = NULL;
 	}
 
 	queue = malloc(sizeof(priqueue_t));
 	completed_queue = malloc(sizeof(priqueue_t));
 	priqueue_init(completed_queue, &compare_FCFS);//FCFS to sort by arrival time
+						      //in the completed queue
 	priqueue_init(queue, compare_func);
 
 }
@@ -153,6 +150,7 @@ int scheduler_new_job(int job_number, int time, int running_time, int priority)
 	new_job->time_first_scheduled = -1;
 	//Second: check for an empty core
 
+
 	int x = 0;
 	for( x = 0; x < m_num_cores; x++)
 	{
@@ -171,32 +169,58 @@ int scheduler_new_job(int job_number, int time, int running_time, int priority)
 	//check for preemption, if applicable
 	if(PPRI == active_scheme || PSJF == active_scheme)
 	{ //a preemptive scheme
+		//For proper comparisons, the currently running job must be
+		//updated (for running time) (this is for the PJSF scheme
 		for(x = 0; x < m_num_cores; x++)
 		{
-			if(0 > compare_func(new_job , core_array[x]->active_job))
-			{//the new job preempts the current one
-				//update old job
-				job_t* temp = core_array[x]->active_job;
-				int time_run = temp->time_running + (time -
-						temp->time_last_scheduled);
-
-				temp->time_running = time_run;
-				temp->core_id = -1;
-				//add to queue
-				priqueue_offer(queue, temp);
-
-				//put new job onto core
-				core_array[x]->active_job = new_job;
-				new_job->core_id = x;
-				new_job->time_last_scheduled = time;
-				new_job->time_first_scheduled = time;
-				core_array[x]->active_job_id = job_number;
-				return(x); //return core it's running on
+			job_t* curr_job = core_array[x]->active_job;
+			curr_job->time_running = curr_job->time_running + (time
+					- curr_job->time_last_scheduled);
+			curr_job->time_last_scheduled = time;
+		}
+		//initialize this as the first core
+		int lowest_priority_location = 0;
+		for(x = 1; x < m_num_cores; x++)
+		{//start at second core, this section will only prompt on multi core systems
+			job_t* running_job = core_array[x]->active_job;
+			job_t* lowest_priority_job = core_array[lowest_priority_location]->active_job;
+			if(0 < compare_func(running_job , lowest_priority_job ))
+			{
+				//"running_job" has less priority than
+				//"lowest_priority"
+				lowest_priority_location = x;
 			}
 		}
+
+		//create pointer "curr_job" that points to the job with the lowest priority; that is,
+		//the job we're checking to see if we should swap it out
+		job_t* curr_job = core_array[lowest_priority_location]->active_job;
+
+		if(0 > compare_func(new_job , curr_job))
+		{//the new job preempts the current one
+			//remove old job from the core
+			curr_job->core_id = -1;
+			//add old job to queue
+			priqueue_offer(queue, curr_job);
+			if(curr_job->time_first_scheduled == time)
+			{
+				//this job got scheduled, and then
+				//immediately kicked off the core,
+				//so reset first schedule time
+				curr_job->time_first_scheduled = -1;
+			}
+			//put new job onto core, update its values accordingly
+			core_array[lowest_priority_location]->active_job = new_job;
+			new_job->core_id = lowest_priority_location;
+			new_job->time_last_scheduled = time;
+			new_job->time_first_scheduled = time;
+			core_array[lowest_priority_location]->active_job_id = job_number;
+			return(lowest_priority_location); //return core it's running on
+		}
+
 		//At this point, it couldn't get scheduled, so add to queue
 		priqueue_offer(queue, new_job);
-		return(-1);
+		return(-1); //-1 means it's not been scheduled
 	}
 	else
 	{ //nothing it can or will preempt, add to job queue, return -1
@@ -228,7 +252,7 @@ int scheduler_job_finished(int core_id, int job_number, int time)
 	job_t* finished_job = core_array[core_id]->active_job;
 	finished_job->completion_time = time;
 	finished_job->core_id = -1; //not being scheduled anymore
-	finished_job->time_running = finished_job->length; //run the entire course
+	finished_job->time_running = finished_job->length; //run its entire course
 	finished_job->time_last_scheduled = time;
 	priqueue_offer(completed_queue, finished_job);
 
@@ -317,10 +341,11 @@ int scheduler_quantum_expired(int core_id, int time)
 	new_job->core_id = core_id;
 
 	if( -1 == new_job->time_first_scheduled )
-	{ //job has never been scheduled
+	{ //job has never been scheduled before
 		new_job->time_first_scheduled = time; //update
 	}
 
+	//return the id of the job that's now running on that core
 	return(new_job->job_id);
 
 }
@@ -343,16 +368,21 @@ float scheduler_average_waiting_time()
 	for(int x = 0; x < total_jobs; x++)
 	{
 		job_t* temp = priqueue_at(completed_queue, x);
-		if(temp == NULL)
+		/* Error checking
+		if(temp == NULL) //A 
 		{
 			printf("Error in calculating average, ");
 			//printf("%2d: %s\n",x);
 			break;
 		}
+		*/
 		total_waiting_time = total_waiting_time + (temp->completion_time
 					- temp->arrival_time - temp->length);
 	}
 
+	//calculate the total amount of time spent in the waiting queue, then
+	//divide by the total number of jobs. 
+	//also cast those integers to floats
 	float average = (float)total_waiting_time / (float)total_jobs;
 
 
@@ -380,6 +410,8 @@ float scheduler_average_turnaround_time()
 					- temp->arrival_time);
 	}
 
+	//calculate the total amount of time from creation to completion, then divide
+	//by the total number of jobs
 	float average = (float)total_turnaround_time / (float)total_jobs;
 
 	return(average);
@@ -407,7 +439,8 @@ float scheduler_average_response_time()
 		total_response_time = total_response_time +
 				(temp->time_first_scheduled - temp->arrival_time);
 	}
-
+	//Calculate the total amount of time spent waiting for first schedule, 
+	//then divide it by the total number of jobs
 	float average = (float)total_response_time / (float)total_jobs;
 
 	return(average);
@@ -422,24 +455,32 @@ float scheduler_average_response_time()
 */
 void scheduler_clean_up()
 {
+	//free the array in the queue
+	priqueue_destroy(queue);
+
 	free(queue);//empty at this point, no need to iterate through the waiting queue
 
 	int finished_size = completed_queue->m_size;
 
 	for(int x = 0; x < finished_size; x++)
 	{
+		//free all the jobs in the completed queue
 		free(priqueue_poll(completed_queue));
 	}
+	//free the array in the completed queue
+	priqueue_destroy(completed_queue);
+	//free the completed queue
 	free(completed_queue);
 	
 	for(int x = 0; x < m_num_cores; x++)
 	{
+		//free all the cores in the core array
 		free(core_array[x]);
 	}
+	//free the core array
 	free(core_array);
 
 
-	//need to free the cores and the jobs, if not freed already
 }
 
 
@@ -483,6 +524,7 @@ int compare_SJF(const void *a , const void *b)
 	if(a_remainder == b_remainder)
 	{
 		//If a arrived sooner, then it will be propagated up the queue
+		//(this checks based off of the arrival times)
 		return(job_a->arrival_time - job_b->arrival_time);
 	}
 	else
@@ -497,12 +539,15 @@ int compare_PRI(const void *a, const void *b)
 {
 	//Checks priority value. Lower number = higher priority
 	//tiebreak with arrival time.
+
+	//cast to job pointer
 	job_t* job_a = (job_t *) a;
 	job_t* job_b = (job_t *) b;
 
 	int return_value = job_a->priority - job_b->priority;
 	if(return_value == 0)
 	{ //both priorities are identical
+		//check priority based off of arrival time
 		return_value = job_a->arrival_time - job_b->arrival_time;
 		//both arrival times shouldn't be identical, as said by the
 		//documentation
